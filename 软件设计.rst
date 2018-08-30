@@ -28,3 +28,19 @@ Keepalived是用纯ANSI/ISO C编写的。该软件围绕一个中央I/O多路复
 
 内核组件
 --------
+
+Keepalived使用了4个Linux内核组件：
+
+1. LVS框架：使用getsockopt和setsockopt调用来获取和设置套接字上的选项
+
+2. Netfilter框架：支持NAT和Masquerading的IPVS代码
+
+3. Netlink接口：在网络接口上设置和删除VRRP虚拟IP
+
+4. 组播：VRRP通告发送到保留的VRRP组播组(224.0.0.18)
+
+
+原子元素
+--------
+
+.. image:: images/software_design.png
