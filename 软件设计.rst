@@ -19,7 +19,7 @@ Keepalived是用纯ANSI/ISO C编写的。该软件围绕一个中央I/O多路复
 如果父进程无法向远程连接的unix域套接字发送hello数据包，则只需重启子进程。
 
 这种看门狗设计提供了2个好处，首先从父进程发送到远程连接子进程的hello数据包是通过I/O多路复用器调度程序完成的，\
-它可以检测子进程调度框架中的deadloop。第二个好处是通过使用sysV信号来检测死亡的子进程。运行时，您将看到如下的进程列表：::
+它可以检测子进程调度框架中的deadloop。第二个好处是通过使用sysV信号来检测死亡的子进程。运行时，您将看到如下的进程列表::
 
     PID    111    Keepalived        < - 监视子进程的父进程
            112    \ _ Keepalived    < - VRRP子进程
@@ -96,7 +96,7 @@ WatchDog
 VRRP堆栈
 --------
 
-Keepalived的另一个重要功能。VRRP（虚拟路由器冗余协议：RFC2338）专注于导向器接管，它为路由器备份提供底层设计。\
+Keepalived的另一个重要功能。VRRP（虚拟路由器冗余协议：:RFC:`2338`）专注于导向器接管，它为路由器备份提供底层设计。\
 它实现了完整的IETF RFC2338标准，其中包含为LVS和防火墙设计的一些规定和扩展。它实现了vrrp_sync_group扩展，可在协议接管后保证持久性路由路径。\
 它使用MD5-96bit加密配置实现IPSEC-AH，以提供安全的协议通告交换。有关VRRP的更多信息，请阅读RFC。\
 一个重要的事情就是：VRRP代码被设计为独立使用，因此可以在没有LVS支持的情况下工作。它在由父进程监控的独立子进程中运行。
@@ -120,7 +120,7 @@ Netlink消息子系统用于设置VRRP VIP。另一方面，Netlink内核消息�
 SMTP
 ----
 
-SMTP协议用于管理通知。它使用多线程FSM设计实现了IEFT RFC821。在健康检查活动和VRRP协议状态转换时进行管理通知。\
+SMTP协议用于管理通知。它使用多线程FSM设计实现了IEFT :RFC:`821`。在健康检查活动和VRRP协议状态转换时进行管理通知。\
 SMTP协议是很常用的，因此可以与任何其他通知子系统对接，如GSM-SMS，寻呼机等。
 
 
@@ -183,17 +183,13 @@ Keepalived的目标是定义一个易于扩展的通用框架，用于添加新�
 
 Keepalived实现了用于导向器故障切换的VRRP协议。在实现的VRRP堆栈中，VRRP数据包调度程序负责为每个VRRP实例多路分发特定的I/O。
 
-在RFC2338中，VRRP被定义为：::
+在RFC2338中，VRRP被定义为：
 
-    VRRP指定一个选举协议，负责动态分配虚拟路由器到LAN上的一个VRRP路由器。\
-    控制与虚拟路由器关联的IP地址的VRRP路由器称为Master（主路由器），对发送到这些IP地址的数据包进行转发。\
-    当Master不可用时，选举过程提供转发责任的动态故障切换。
-    这允许终端主机将LAN上任何的虚拟路由器IP地址作为默认的第一跳路由器。
-    使用VRRP的优点就是，无需在每个终端主机上配置动态路由或路由发现协议，就可以获得更高可用性的默认路径。[rfc2338]
+    VRRP指定一个选举协议，负责动态分配虚拟路由器到LAN上的一个VRRP路由器。控制与虚拟路由器关联的IP地址的VRRP路由器称为Master（主路由器），
+    对发送到这些IP地址的数据包进行转发。当Master不可用时，选举过程提供转发责任的动态故障切换。这允许终端主机将LAN上任何的虚拟路由器IP
+    地址作为默认的第一跳路由器。使用VRRP的优点就是，无需在每个终端主机上配置动态路由或路由发现协议，就可以获得更高可用性的默认路径。[rfc2338]
 
-::
-
-    注意
+.. Note::
     该框架与LVS无关，因此您可以将其用于LVS路由器故障切换，即使对于其他需要热备用协议的Linux路由器也是如此。\
     出于设计和健壮性原因，此框架已经完全集成在Keepalived守护进程中。
 
@@ -208,3 +204,74 @@ Keepalived实现了用于导向器故障切换的VRRP协议。在实现的VRRP�
 * 通告数据包完整性：使用使用IPSEC-AH ICV；
 
 * 系统调用：在VRRP状态转换期间，可以调用外部脚本/程序。
+
+
+使用VRRP和虚拟MAC地址的注意事项
+-------------------------------
+
+为了减少接管的影响，某些网络环境需要使用VRRP和 :guilabel:`VMAC` 地址。为了实现这一目标，Keepalived VRRP框架通过在配置文件中调用 ``use_mac`` 关键字来实现VMAC支持。
+
+在内部，Keepalived代码会引入虚拟接口，每个接口专用于特定的 ``virtual_router``。Keepalived使用Linux内核 ``macvlan`` 驱动程序来定义这些接口。因此，必须使用支持macvlan编译的内核。
+
+此外，我们会提到VRRP VMAC仅适用于包含以下补丁的内核：
+
+http://git.kernel.org/?p=linux/kernel/git/torvalds/linux.git;a=commitdiff;h=729e72a10930ef765c11a5a35031ba47f18221c4
+
+默认情况下，macvlan接口处于 ``VEPA`` 模式，会过滤掉源MAC地址与macvlan接口匹配的数据包。设置为私有模式后macvlan接口就不会基于源MAC地址进行过滤了。
+
+或者，您可以指定 ``vmac_xmit_base``，这将导致VRRP消息在底层接口上传输和接收，而 ``ARP`` 将在VMAC接口上发生。
+
+您可能还需要调整物理接口以解决众所周知的ARP问题。如果您遇到问题，请尝试以下配置：
+
+1. 全局配置 ::
+
+    net.ipv4.conf.all.arp_ignore = 1
+    net.ipv4.conf.all.arp_announce = 1
+    net.ipv4.conf.all.arp_filter = 0
+
+2. 物理接口配置
+
+对于运行VRRP实例的物理以太网接口，请使用::
+
+    net.ipv4.conf.eth0.arp_filter = 1
+
+3. VMAC接口
+
+考虑以下的VRRP配置::
+
+    vrrp_instance instance1 {
+        state BACKUP
+        interface eth0
+        virtual_router_id 250
+        use_vmac
+            vmac_xmit_base         # Transmit VRRP adverts over physical interface
+        priority 150
+        advert_int 1
+        virtual_ipaddress {
+            10.0.0.254
+        }
+    }
+
+``use_vmac`` 关键字将驱动Keepalived代码来创建一个名字如 :guilabel:`vrrp.250` 的macvlan接口（默认的内部范例是 ``vrrp.{virtual_router_id}``，\
+您可以通过给 ``use_vmac`` 关键字赋一个参数来覆盖这个命名，例如：``use_vmac vrrp250``）。
+
+然后，您需要配置接口::
+
+    net.ipv4.conf.vrrp.250.arp_filter = 0
+    net.ipv4.conf.vrrp.250.accept_local = 1 (this is needed for the address owner case)
+    net.ipv4.conf.vrrp.250.rp_filter = 0
+
+您可以创建 ``notify_master`` 脚本来自动执行此配置步骤::
+
+    vrrp_instance instance1 {
+        state BACKUP
+        interface eth0
+        virtual_router_id 250
+        use_vmac
+        priority 150
+        advert_int 1
+        virtual_ipaddress {
+            10.0.0.254
+        }
+        notify_master "/usr/local/bin/vmac_tweak.sh vrrp.250"
+    }
