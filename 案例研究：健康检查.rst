@@ -1,0 +1,227 @@
+案例研究：健康检查
+^^^^^^^^^^^^^^^^^^
+
+作为示例，我们可以引入如下LVS拓扑：
+
+首先，您需要一个配置良好的LVS拓扑。在本文档的其余部分，我们假设已完成所有系统配置。这种拓扑通常在DMZ架构中实现。\
+有关LVS NAT拓扑和系统配置的更多信息，请阅读非常详细的Joseph Mack的 ``LVS HOWTO``。
+
+主要架构组件
+------------
+
+- LVS路由器：拥有负载均衡的IP类路由（192.168.100.0/24）
+- 网络路由器：整个内部网络的默认路由器。所有LAN工作站都通过此IP地址处理。
+- 网络DNS服务器：引用内部网络IP拓扑。
+- SMTP服务器：接收邮件报警的SMTP服务器。
+- 服务器池：一组承载负载均衡服务的服务器。
+
+
+服务器池规格
+------------
+
+在此示例配置中，我们有2个服务器池：
+
+- 服务器池1：托管HTTP和SSL服务。每个服务器拥有两个应用服务（``IBM WEBSPHERE`` 和 ``BEA WEBLOGIC``）
+- 服务器池2：托管SMTP服务。
+
+
+Keepalived配置
+--------------
+
+您现在可以根据LVS拓扑来配置Keepalived守护进程了。整个配置在 ``/etc/keepalived/keepalived.conf`` 文件中完成。在我们的案例研究中，此文件如下所示::
+
+    # Configuration File for keepalived
+    global_defs {
+        notification_email {
+            admin@domain.com
+            0633225522@domain.com
+        }
+        notification_email_from keepalived@domain.com
+        smtp_server 192.168.200.20
+        smtp_connect_timeout 30
+        lvs_id LVS_MAIN
+    }
+    virtual_server 192.168.200.15 80 {
+        delay_loop 30
+        lb_algo wrr
+        lb_kind NAT
+        persistence_timeout 50
+        protocol TCP
+
+        sorry_server 192.168.100.100 80
+
+        real_server 192.168.100.2 80 {
+            weight 2
+            HTTP_GET {
+                url {
+                    path /testurl/test.jsp
+                    digest ec90a42b99ea9a2f5ecbe213ac9eba03
+                }
+                url {
+                    path /testurl2/test.jsp
+                    digest 640205b7b0fc66c1ea91c463fac6334c
+                }
+                connect_timeout 3
+                retry 3
+                delay_before_retry 2
+            }
+        }
+        real_server 192.168.100.3 80 {
+            weight 1
+            HTTP_GET {
+                url {
+                    path /testurl/test.jsp
+                    digest 640205b7b0fc66c1ea91c463fac6334c
+                }
+                connect_timeout 3
+                retry 3
+                delay_before_retry 2
+            }
+        }
+    }
+    virtual_server 192.168.200.15 443 {
+        delay_loop 20
+        lb_algo rr
+        lb_kind NAT
+        persistence_timeout 360
+        protocol TCP
+        real_server 192.168.100.2 443 {
+            weight 1
+            TCP_CHECK {
+                connect_timeout 3
+            }
+        }
+        real_server 192.168.100.3 443 {
+            weight 1
+            TCP_CHECK {
+                connect_timeout 3
+            }
+        }
+    }
+    virtual_server 192.168.200.15 25 {
+        delay_loop 15
+        lb_algo wlc
+        lb_kind NAT
+        persistence_timeout 50
+        protocol TCP
+        real_server 192.168.100.4 25 {
+            weight 1
+            TCP_CHECK {
+                connect_timeout 3
+            }
+        }
+        real_server 192.168.100.5 25 {
+            weight 2
+            TCP_CHECK {
+                connect_timeout 3
+            }
+        }
+    }
+
+根据此配置示例，Keepalived守护进程将使用以下信息驱动内核：
+
+-  LVS服务器将拥有名称：LVS_MAIN
+
+- 通知：
+
+    - SMTP服务器将是：192.168.200.20
+    - SMTP连接超时设置为：30秒
+    - 通知电子邮箱将是：admin@domain.com和0633225522@domain.com
+
+- 负载均衡服务：
+
+    - HTTP：VIP 192.168.200.15 端口 80
+
+        - 负载均衡：使用NAT转发和加权轮转调度。每个TCP服务上的连接持久性设置为50秒。如果您使用的是Linux内核2.2，则需要指定NAT网络掩码来定义IPFW伪装的粒度（net_mask关键字）。延迟循环设置为30秒。
+        - sorry服务器：如果所有的真实服务器都被从VS服务器池中移除了，我们添加sorry_server 192.168.100.100端口80来为客户端提供服务。
+        - 真实服务器192.168.100.2端口80将加权为2。故障检测将基于2个URL上的HTTP_GET方法。服务的连接超时时间将被设置为3秒。重试3次后，真实服务器将被视为宕机。守护进程将等待2秒后再重试。
+        - 真实服务器192.168.100.3端口80将加权为1。故障检测将基于1个URL上的HTTP_GET方法。服务的连接超时时间将被设置为3秒。重试3次后，真实服务器将被视为宕机。守护进程将等待2秒后再重试。
+
+    - SSL：VIP 192.168.200.15 端口 443
+
+        - 负载均衡：使用NAT转发和轮转调度。每个TCP服务上的连接持久性设置为360秒。延迟循环设置为20秒。
+        - 真实服务器192.168.100.2端口443将加权为2。故障检测将基于TCP_CHECK方法。在3秒的连接超时时间后，真实服务器将被视为宕机。
+        - 真实服务器192.168.100.3端口443将加权为2。故障检测将基于TCP_CHECK方法。在3秒的连接超时时间后，真实服务器将被视为宕机。
+
+    - SMTP：VIP 192.168.200.15 端口 25
+
+        - 负载均衡：在NAT拓扑中使用加权最少连接调度算法，连接持久性设置为50秒。延迟循环设置为15秒。
+        - 真实服务器192.168.100.4端口25将加权为1。故障检测将基于TCP_CHECK方法。在3秒的连接超时时间后，真实服务器将被视为宕机。
+        - 真实服务器192.168.100.5端口25将加权为2。故障检测将基于TCP_CHECK方法。在3秒的连接超时时间后，真实服务器将被视为宕机。
+
+对于SSL服务器运行状况检测，我们可以使用SSL_GET方法。相应真实服务器的配置块如下所示::
+
+    virtual_server 192.168.200.15 443 {
+        delay_loop 20
+        lb_algo rr
+        lb_kind NAT
+        persistence_timeout 360
+        protocol TCP
+        real_server 192.168.100.2 443 {
+            weight 1
+            SSL_GET
+            {
+                url {
+                    path /testurl/test.jsp
+                    digest ec90a42b99ea9a2f5ecbe213ac9eba03
+                }
+                url {
+                    path /testurl2/test.jsp
+                    digest 640205b7b0fc66c1ea91c463fac6334c
+                }
+                connect_timeout 3
+                retry 3
+                delay_before_retry 2
+            }
+        }
+        real_server 192.168.100.3 443 {
+            weight 1
+            SSL_GET
+            {
+                url {
+                    path /testurl/test.jsp
+                    digest 640205b7b0fc66c1ea91c463fac6334c
+                }
+                connect_timeout 3
+                retry 3
+                delay_before_retry 2
+            }
+        }
+    }
+
+要生成一个URL的摘要和，只需执行以下操作::
+
+    [root@lvs /root]# genhash –s 192.168.100.2 –p 80 –u /testurl/test.jsp
+    --------------------------[ HTTP Header Buffer ]--------------------------
+    0000 48 54 54 50 2f 31 2e 31 - 20 34 30 31 20 55 6e 61 HTTP/1.1 401 Una
+    0010 75 74 68 6f 72 69 7a 65 - 64 0d 0a 44 61 74 65 3a uthorized..Date:
+    0020 20 4d 6f 6e 2c 20 32 33 - 20 41 70 72 20 32 30 30 Mon, 23 Apr 200
+    0030 31 20 31 35 3a 34 31 3a - 35 34 20 47 4d 54 0d 0a 1 15:41:54 GMT..
+    0040 41 6c 6c 6f 77 3a 20 47 - 45 54 2c 20 48 45 41 44 Allow: GET, HEAD
+    0050 0d 0a 53 65 72 76 65 72 - 3a 20 4f 72 61 63 6c 65 ..Server: Oracle
+    0060 5f 57 65 62 5f 4c 69 73 - 74 65 6e 65 72 2f 34 2e _Web_Listener/4.
+    0070 30 2e 38 2e 31 2e 30 45 - 6e 74 65 72 70 72 69 73 0.8.1.0Enterpris
+    0080 65 45 64 69 74 69 6f 6e - 0d 0a 43 6f 6e 74 65 6e eEdition..Conten
+    0090 74 2d 54 79 70 65 3a 20 - 74 65 78 74 2f 68 74 6d t-Type: text/htm
+    00a0 6c 0d 0a 43 6f 6e 74 65 - 6e 74 2d 4c 65 6e 67 74 l..Content-Lengt
+    00b0 68 3a 20 31 36 34 0d 0a - 57 57 57 2d 41 75 74 68 h: 164..WWW-Auth
+    00c0 65 6e 74 69 63 61 74 65 - 3a 20 42 61 73 69 63 20 enticate: Basic
+    00d0 72 65 61 6c 6d 3d 22 41 - 43 43 45 53 20 20 20 20 realm="ACCES
+    00e0 22 0d 0a 43 61 63 68 65 - 2d 43 6f 6e 74 72 6f 6c "..Cache-Control
+    00f0 3a 20 70 75 62 6c 69 63 - 0d 0a 0d 0a : public....
+    ------------------------------[ HTML Buffer ]-----------------------------
+    0000 3c 48 54 4d 4c 3e 3c 48 - 45 41 44 3e 3c 54 49 54 <HTML><HEAD><TIT
+    0010 4c 45 3e 55 6e 61 75 74 - 68 6f 72 69 7a 65 64 3c LE>Unauthorized<
+    0020 2f 54 49 54 4c 45 3e 3c - 2f 48 45 41 44 3e 0d 0a /TITLE></HEAD>..
+    0030 3c 42 4f 44 59 3e 54 68 - 69 73 20 64 6f 63 75 6d <BODY>This docum
+    0040 65 6e 74 20 69 73 20 70 - 72 6f 74 65 63 74 65 64 ent is protected
+    0050 2e 20 20 59 6f 75 20 6d - 75 73 74 20 73 65 6e 64 . You must send
+    0060 0d 0a 74 68 65 20 70 72 - 6f 70 65 72 20 61 75 74 ..the proper aut
+    0070 68 6f 72 69 7a 61 74 69 - 6f 6e 20 69 6e 66 6f 72 horization infor
+    0080 6d 61 74 69 6f 6e 20 74 - 6f 20 61 63 63 65 73 73 mation to access
+    0090 20 69 74 2e 3c 2f 42 4f - 44 59 3e 3c 2f 48 54 4d it.</BODY></HTM
+    00a0 4c 3e 0d 0a - L>..
+    -----------------------[ HTML MD5 final resulting ]-----------------------
+    MD5 Digest : ec90a42b99ea9a2f5ecbe213ac9eba03
+
+唯一要做的就是复制生成的MD5摘要值，并将其作为摘要值关键字粘贴到Keepalived的配置文件中。

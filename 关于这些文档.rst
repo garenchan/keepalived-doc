@@ -1,0 +1,33 @@
+关于这些文档
+^^^^^^^^^^^^
+
+这些文档是由 Sphinx_ 从 reStructuredText_ 源生成的，Sphinx是专门为Python文档编写的文档处理器。
+
+.. _Sphinx: http://sphinx-doc.org/
+.. _reStructuredText: http://docutils.sourceforge.net/rst.html
+
+构建文档
+--------
+
+要构建Keepalived文档，您需要在系统上安装最新版本的Sphinx。或者，您可以使用Python virtualenv。
+
+从克隆的存储库的根目录运行以下命令以HTML格式构建文档::
+
+    cd keepalived-docs
+    make html
+
+对于PDF，您还需要 ``docutils`` 和各种 ``texlive-*`` 包，用于将reStructuredText转换为LaTex，最后转换为PDF::
+
+    pip install docutils
+    cd keepalived-docs
+    make latexpdf
+
+或者，您可以使用Sphinx包附带的 ``sphinx-build`` 命令::
+
+    cd keepalived-docs
+    sphinx-build -b html . build/html
+
+
+.. Todo:: 编译latexpdf需要由RHEL6上的texlive-latex和Fedora21上的texlive-latex-bin-bin提供的pdflatex
+
+.. Todo:: 编译linkcheck来检查链接是否损坏
